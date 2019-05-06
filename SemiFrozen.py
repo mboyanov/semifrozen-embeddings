@@ -18,32 +18,26 @@ class SemiFrozenEmbedding(nn.Module):
         self.embedding_dim, self.num_emb = emb_dim, num_emb
         super(SemiFrozenEmbedding, self).__init__()
         self.frozen_ids = frozen_ids
-        frozen_weight = torch.cat( [torch.zeros(1, emb_dim), _weight[self.frozen_ids]], dim=0)
-        self.frozen_emb = nn.Embedding(len(self.frozen_ids)+1, emb_dim, padding_idx=padding_idx, _weight=frozen_weight)
-        self.frozen_emb.weight.requires_grad = False
+        internal_padding_idx = 0
         trainable_ids = [x for x in range(num_emb) if x not in frozen_id_set]
+        if padding_idx in trainable_ids: trainable_ids.remove(padding_idx)
+        if padding_idx in frozen_ids: frozen_ids.remove(padding_idx)
+
+        frozen_weight = torch.cat( [torch.zeros(1, emb_dim), _weight[self.frozen_ids]], dim=0)
+        self.frozen_emb = nn.Embedding(len(self.frozen_ids)+1, emb_dim, padding_idx=internal_padding_idx, _weight=frozen_weight)
+        self.frozen_emb.weight.requires_grad = False
+
         trainable_weight = torch.cat([torch.zeros(1, emb_dim), _weight[trainable_ids]], dim=0)
 
-        internal_padding_idx = 0
+        self.trainable_emb = nn.Embedding(len(trainable_ids) + 1, emb_dim, padding_idx=internal_padding_idx, _weight=trainable_weight)
 
-        self.trainable_emb = nn.Embedding(num_emb - len(self.frozen_ids) + 1, emb_dim, padding_idx=internal_padding_idx, _weight=trainable_weight)
         self.trainable_map = torch.zeros(num_emb, dtype=torch.long) + internal_padding_idx
         self.frozen_map = torch.zeros(num_emb, dtype=torch.long) + internal_padding_idx
-        frozen_idx = internal_padding_idx + 1
-        trainable_idx = internal_padding_idx + 1
-        for i in range(num_emb):
-            if i == padding_idx:
-                if i in frozen_id_set:
-                    frozen_idx += 1
-                else:
-                    trainable_idx += 1
-                continue
-            elif i in frozen_id_set:
-                self.frozen_map[i] = frozen_idx
-                frozen_idx += 1
-            else:
-                self.trainable_map[i] = trainable_idx
-                trainable_idx += 1
+
+        for idx, frozen_idx in enumerate(frozen_ids):
+            self.frozen_map[frozen_idx] = idx + 1
+        for idx, trainable_idx in enumerate(trainable_ids):
+            self.trainable_map[trainable_idx] = idx + 1
 
     def forward(self, *input):
         text_input = input[0]
